@@ -6,7 +6,14 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 admin.initializeApp();
 
-const genAI = new GoogleGenerativeAI(functions.config().gemini.key);
+// Safely initialize the Gemini AI SDK
+let genAI;
+if (functions.config().gemini && functions.config().gemini.key) {
+    genAI = new GoogleGenerativeAI(functions.config().gemini.key);
+} else {
+    console.warn('Gemini API key not found. AI features will be disabled.');
+}
+
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -39,6 +46,11 @@ async function isTripMember(tripId, userId) {
 app.use(authenticate);
 
 app.post('/getTravelSuggestions', async (req, res) => {
+    // Check if genAI is initialized
+    if (!genAI) {
+        return res.status(500).json({ error: "Gemini API key not configured. AI features are disabled." });
+    }
+
     const prompt = req.body.prompt;
     if (!prompt) {
         return res.status(400).json({ error: "The function must be called with a 'prompt' argument." });
@@ -166,7 +178,7 @@ const getItemsFromTrip = (collectionName) => async (req, res) => {
     const { tripId } = req.params;
 
     if (!(await isTripMember(tripId, req.user.uid))) {
-        return res.status(403).json({ error: `You do not have permission to view this trip's ${collectionName}.` });
+        return res.status(403).json({ error: `You do not have permission to view this trip\'s ${collectionName}.` });
     }
 
     try {
