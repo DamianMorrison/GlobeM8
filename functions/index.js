@@ -1,3 +1,4 @@
+require('dotenv').config();
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const express = require("express");
@@ -8,12 +9,13 @@ admin.initializeApp();
 
 // Safely initialize the Gemini AI SDK
 let genAI;
-if (functions.config().gemini && functions.config().gemini.key) {
-    genAI = new GoogleGenerativeAI(functions.config().gemini.key);
+const geminiApiKey = process.env.GEMINI_API_KEY;
+
+if (geminiApiKey) {
+    genAI = new GoogleGenerativeAI(geminiApiKey);
 } else {
     console.warn('Gemini API key not found. AI features will be disabled.');
 }
-
 
 const app = express();
 app.use(cors({ origin: true }));
