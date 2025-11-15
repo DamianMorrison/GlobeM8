@@ -200,3 +200,8 @@ app.get('/trips/:tripId/reservations', getItemsFromTrip('reservations'));
 
 // Export the express app as a single Cloud Function
 exports.api = functions.https.onRequest(app);
+
+const port = process.env.PORT || 8080;
+app.listen(port, () => {
+    console.log(`API listening on port ${port}`);
+});
