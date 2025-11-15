@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GlobeM8</title>
+  <link type="text/css" rel="stylesheet" href="/style.css" />
+  <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
+  <script src="/__/firebase/9.6.1/firebase-firestore-compat.js"></script>
+  <script src="/__/firebase/9.6.1/firebase-functions-compat.js"></script>
+  <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
+  <script src="/__/firebase/9.6.1/firebase-storage-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
+  <script src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>GlobeM8</h1>
+    <div id="user-auth-container">
+        <button id="login-btn">Login with Google</button>
+        <button id="logout-btn" style="display:none;">Logout</button>
+        <p id="user-email" style="display:none;"></p>
+    </div>
+  </header>
+
+  <div class="container">
+    <div id="ai-suggestions">
+      <h2>AI Travel Suggestions</h2>
+      <textarea id="prompt-input" placeholder="Enter your travel prompt (e.g., 'plan a 3-day trip to Paris for a solo traveler on a budget')"></textarea>
+      <button id="get-suggestions-btn">Get Suggestions</button>
+      <p id="suggestions-output"></p>
+    </div>
+
+    <div id="trip-management">
+      <h2>My Trips</h2>
+      <ul id="trip-list"></ul>
+      <form id="create-trip-form">
+        <input type="text" id="trip-name" placeholder="New trip name" required/>
+        <input type="text" id="trip-description" placeholder="Description" />
+        <input type="date" id="trip-start-date" />
+        <input type="date" id="trip-end-date" />
+        <input type="number" id="trip-budget" placeholder="Budget ($)" />
+        <button type="submit">Create Trip</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="trip-detail-container" style="display:none;">
+    <button id="back-to-trips">Back to Trips</button>
+    <h2 id="trip-detail-name"></h2>
+    <div id="trip-budget-display"></div>
+    <div id="remaining-budget-display"></div>
+
+    <div class="trip-details-grid">
+        <div class="detail-card">
+            <h3>Stops</h3>
+            <ul id="stop-list"></ul>
+            <form id="add-stop-form">
+                <input type="text" id="stop-name" placeholder="e.g., Eiffel Tower" required>
+                <button type="submit">Add Stop</button>
+            </form>
+        </div>
+        <div class="detail-card">
+            <h3>Flights</h3>
+            <ul id="flight-list"></ul>
+            <form id="add-flight-form">
+                <input type="text" id="flight-details" placeholder="e.g., UA 242 to CDG" required>
+                <button type="submit">Add Flight</button>
+            </form>
+        </div>
+        <div class="detail-card">
+            <h3>Hotels</h3>
+            <ul id="hotel-list"></ul>
+            <form id="add-hotel-form">
+                <input type="text" id="hotel-name" placeholder="e.g., Hyatt Regency" required>
+                <button type="submit">Add Hotel</button>
+            </form>
+        </div>
+        <div class="detail-card">
+            <h3>Reservations</h3>
+            <ul id="reservation-list"></ul>
+            <form id="add-reservation-form">
+                <input type="text" id="reservation-details" placeholder="e.g., Dinner at Le Jules Verne" required>
+                <button type="submit">Add Reservation</button>
+            </form>
+        </div>
+    </div>
+  </div>
+
+</body>
+</html>

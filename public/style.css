@@ -1,0 +1,74 @@
+body {
+    font-family: sans-serif;
+    margin: 2em;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    border: 1px solid #ccc;
+    padding: 2em;
+    margin-bottom: 2em;
+}
+
+#trip-detail-container {
+    display: none;
+}
+
+.detail-section {
+    border-top: 1px solid #eee;
+    margin-top: 1em;
+    padding-top: 1em;
+}
+
+ul {
+    padding-left: 1em;
+}
+
+li {
+    cursor: pointer;
+}
+
+li:hover {
+    background-color: #eee;
+}
+
+/* --- General Form Styling for better usability --- */
+input[type="text"], input[type="number"], button {
+    width: 100%;
+    padding: 12px;
+    margin: 6px 0;
+    box-sizing: border-box; /* Ensures padding doesn't add to the width */
+    display: inline-block;
+}
+
+button {
+    cursor: pointer;
+    background-color: #4CAF50; /* A slightly more modern button color */
+    color: white;
+    border: none;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+/* --- Responsive Styles for Mobile --- */
+@media screen and (max-width: 768px) {
+    body {
+        margin: 1em; /* Reduce body margin on mobile */
+    }
+
+    .container {
+        padding: 1em; /* Reduce container padding on mobile */
+        width: auto;  /* Allow container to fill the screen width */
+    }
+
+    h1 {
+        font-size: 1.5em;
+    }
+
+    h2 {
+        font-size: 1.2em;
+    }
+}

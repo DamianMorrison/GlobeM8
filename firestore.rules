@@ -1,0 +1,30 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if a user is a member of a trip
+    function isTripMember(tripId, userId) {
+      let trip = get(/databases/$(database)/documents/trips/$(tripId)).data;
+      return userId == trip.ownerId || userId in trip.sharedWith;
+    }
+
+    // Trips can be read by the owner or a collaborator.
+    // Trips can only be created, updated or deleted by the owner.
+    match /trips/{tripId} {
+      allow read: if request.auth.uid != null && isTripMember(tripId, request.auth.uid);
+      allow create: if request.auth.uid != null && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if request.auth.uid != null && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Sub-collections of a trip can be read and written to by any member of the trip.
+    match /trips/{tripId}/{subcollection}/{document=**} {
+      allow read, write: if request.auth.uid != null && isTripMember(tripId, request.auth.uid);
+    }
+
+    // Users can only read their own user document
+    match /users/{userId} {
+        allow read: if request.auth.uid == userId;
+    }
+  }
+}
