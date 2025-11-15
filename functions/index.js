@@ -1,9 +1,32 @@
 const functions = require("firebase-functions");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const admin = require("firebase-admin");
+const express = require("express");
+const cors = require("cors");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
 admin.initializeApp();
 
 const genAI = new GoogleGenerativeAI(functions.config().gemini.key);
+
+const app = express();
+app.use(cors({ origin: true }));
+app.use(express.json());
+
+// Middleware for authentication
+const authenticate = async (req, res, next) => {
+    if (!req.headers.authorization || !req.headers.authorization.startsWith('Bearer ')) {
+        return res.status(403).send('Unauthorized');
+    }
+    const idToken = req.headers.authorization.split('Bearer ')[1];
+    try {
+        const decodedIdToken = await admin.auth().verifyIdToken(idToken);
+        req.user = decodedIdToken;
+        next();
+    } catch (error) {
+        console.error('Error while verifying Firebase ID token:', error);
+        res.status(403).send('Unauthorized');
+    }
+};
 
 async function isTripMember(tripId, userId) {
     const trip = await admin.firestore().collection('trips').doc(tripId).get();
@@ -12,14 +35,13 @@ async function isTripMember(tripId, userId) {
     return tripData.ownerId === userId || (tripData.sharedWith && tripData.sharedWith.includes(userId));
 }
 
-exports.getTravelSuggestions = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
-    }
+// All routes will be authenticated
+app.use(authenticate);
 
-    const prompt = data.prompt;
+app.post('/getTravelSuggestions', async (req, res) => {
+    const prompt = req.body.prompt;
     if (!prompt) {
-        throw new functions.https.HttpsError("invalid-argument", "The function must be called with a 'prompt' argument.");
+        return res.status(400).json({ error: "The function must be called with a 'prompt' argument." });
     }
 
     try {
@@ -27,20 +49,16 @@ exports.getTravelSuggestions = functions.https.onCall(async (data, context) => {
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
-        return { result: text };
+        return res.json({ result: text });
     } catch (error) {
         console.error("Error calling Gemini AI:", error);
-        throw new functions.https.HttpsError("internal", "An error occurred while calling the AI model.");
+        return res.status(500).json({ error: "An error occurred while calling the AI model." });
     }
 });
 
-exports.createTrip = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to create a trip.');
-    }
-
-    const { name, description, startDate, endDate, budget } = data;
-    const ownerId = context.auth.uid;
+app.post('/createTrip', async (req, res) => {
+    const { name, description, startDate, endDate, budget } = req.body;
+    const ownerId = req.user.uid;
 
     try {
         const tripRef = await admin.firestore().collection('trips').add({
@@ -52,19 +70,15 @@ exports.createTrip = functions.https.onCall(async (data, context) => {
             ownerId,
             sharedWith: [],
         });
-        return { id: tripRef.id };
+        return res.json({ id: tripRef.id });
     } catch (error) {
         console.error("Error creating trip:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while creating the trip.');
+        return res.status(500).json({ error: 'An error occurred while creating the trip.' });
     }
 });
 
-exports.getTrips = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to view trips.');
-    }
-
-    const uid = context.auth.uid;
+app.get('/getTrips', async (req, res) => {
+    const uid = req.user.uid;
     const trips = [];
 
     try {
@@ -75,236 +89,114 @@ exports.getTrips = functions.https.onCall(async (data, context) => {
 
         const sharedTripsSnapshot = await admin.firestore().collection('trips').where('sharedWith', 'array-contains', uid).get();
         sharedTripsSnapshot.forEach(doc => {
-            trips.push({ id: doc.id, ...doc.data() });
+            // Avoid duplicates if a user is both owner and shared
+            if (!trips.some(trip => trip.id === doc.id)) {
+                trips.push({ id: doc.id, ...doc.data() });
+            }
         });
 
-        return trips;
+        return res.json(trips);
     } catch (error) {
         console.error("Error getting trips:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while getting the trips.');
+        return res.status(500).json({ error: 'An error occurred while getting the trips.' });
     }
 });
 
-exports.updateTrip = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to update a trip.');
-    }
-
-    const { id, name, description, startDate, endDate, budget } = data;
-    const uid = context.auth.uid;
+app.put('/updateTrip/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, description, startDate, endDate, budget } = req.body;
+    const uid = req.user.uid;
 
     try {
         const tripRef = admin.firestore().collection('trips').doc(id);
         const trip = await tripRef.get();
 
         if (!trip.exists || trip.data().ownerId !== uid) {
-            throw new functions.https.HttpsError('permission-denied', 'You do not have permission to update this trip.');
+            return res.status(403).json({ error: 'You do not have permission to update this trip.' });
         }
 
         await tripRef.update({ name, description, startDate, endDate, budget });
-        return { id: tripRef.id };
+        return res.json({ id: tripRef.id });
     } catch (error) {
         console.error("Error updating trip:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while updating the trip.');
+        return res.status(500).json({ error: 'An error occurred while updating the trip.' });
     }
 });
 
-exports.deleteTrip = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to delete a trip.');
-    }
-
-    const { id } = data;
-    const uid = context.auth.uid;
+app.delete('/deleteTrip/:id', async (req, res) => {
+    const { id } = req.params;
+    const uid = req.user.uid;
 
     try {
         const tripRef = admin.firestore().collection('trips').doc(id);
         const trip = await tripRef.get();
 
         if (!trip.exists || trip.data().ownerId !== uid) {
-            throw new functions.https.HttpsError('permission-denied', 'You do not have permission to delete this trip.');
+            return res.status(403).json({ error: 'You do not have permission to delete this trip.' });
         }
 
         await tripRef.delete();
-        return { id: tripRef.id };
+        return res.json({ id: tripRef.id });
     } catch (error) {
         console.error("Error deleting trip:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while deleting the trip.');
+        return res.status(500).json({ error: 'An error occurred while deleting the trip.' });
     }
 });
 
-exports.createStop = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to create a stop.');
-    }
+// Generic function to add an item to a subcollection
+const addItemToTrip = (collectionName) => async (req, res) => {
+    const { tripId } = req.params;
+    const data = req.body;
 
-    const { tripId, name } = data;
-
-    if (!(await isTripMember(tripId, context.auth.uid))) {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to add a stop to this trip.');
+    if (!(await isTripMember(tripId, req.user.uid))) {
+        return res.status(403).json({ error: `You do not have permission to add to this trip.` });
     }
 
     try {
-        const stopRef = await admin.firestore().collection('trips').doc(tripId).collection('stops').add({ name });
-        return { id: stopRef.id };
+        const itemRef = await admin.firestore().collection('trips').doc(tripId).collection(collectionName).add(data);
+        return res.json({ id: itemRef.id });
     } catch (error) {
-        console.error("Error creating stop:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while creating the stop.');
+        console.error(`Error creating ${collectionName}:`, error);
+        return res.status(500).json({ error: `An error occurred while creating the ${collectionName}.` });
     }
-});
+};
 
-exports.getStops = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to view stops.');
-    }
+// Generic function to get items from a subcollection
+const getItemsFromTrip = (collectionName) => async (req, res) => {
+    const { tripId } = req.params;
 
-    const { tripId } = data;
-
-    if (!(await isTripMember(tripId, context.auth.uid))) {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to view this trip\'s stops.');
+    if (!(await isTripMember(tripId, req.user.uid))) {
+        return res.status(403).json({ error: `You do not have permission to view this trip's ${collectionName}.` });
     }
 
     try {
-        const stopsSnapshot = await admin.firestore().collection('trips').doc(tripId).collection('stops').get();
-        const stops = [];
-        stopsSnapshot.forEach(doc => {
-            stops.push({ id: doc.id, ...doc.data() });
+        const snapshot = await admin.firestore().collection('trips').doc(tripId).collection(collectionName).get();
+        const items = [];
+        snapshot.forEach(doc => {
+            items.push({ id: doc.id, ...doc.data() });
         });
-        return stops;
+        return res.json(items);
     } catch (error) {
-        console.error("Error getting stops:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while getting the stops.');
+        console.error(`Error getting ${collectionName}:`, error);
+        return res.status(500).json({ error: `An error occurred while getting the ${collectionName}.` });
     }
-});
+};
 
-exports.createFlight = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to create a flight.');
-    }
+// Stops
+app.post('/trips/:tripId/stops', addItemToTrip('stops'));
+app.get('/trips/:tripId/stops', getItemsFromTrip('stops'));
 
-    const { tripId, details } = data;
+// Flights
+app.post('/trips/:tripId/flights', addItemToTrip('flights'));
+app.get('/trips/:tripId/flights', getItemsFromTrip('flights'));
 
-    if (!(await isTripMember(tripId, context.auth.uid))) {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to add a flight to this trip.');
-    }
+// Hotels
+app.post('/trips/:tripId/hotels', addItemToTrip('hotels'));
+app.get('/trips/:tripId/hotels', getItemsFromTrip('hotels'));
 
-    try {
-        const flightRef = await admin.firestore().collection('trips').doc(tripId).collection('flights').add({ details });
-        return { id: flightRef.id };
-    } catch (error) {
-        console.error("Error creating flight:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while creating the flight.');
-    }
-});
+// Reservations
+app.post('/trips/:tripId/reservations', addItemToTrip('reservations'));
+app.get('/trips/:tripId/reservations', getItemsFromTrip('reservations'));
 
-exports.getFlights = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to view flights.');
-    }
-
-    const { tripId } = data;
-
-    if (!(await isTripMember(tripId, context.auth.uid))) {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to view this trip\'s flights.');
-    }
-
-    try {
-        const flightsSnapshot = await admin.firestore().collection('trips').doc(tripId).collection('flights').get();
-        const flights = [];
-        flightsSnapshot.forEach(doc => {
-            flights.push({ id: doc.id, ...doc.data() });
-        });
-        return flights;
-    } catch (error) {
-        console.error("Error getting flights:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while getting the flights.');
-    }
-});
-
-exports.createHotel = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to create a hotel.');
-    }
-
-    const { tripId, name } = data;
-
-    if (!(await isTripMember(tripId, context.auth.uid))) {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to add a hotel to this trip.');
-    }
-
-    try {
-        const hotelRef = await admin.firestore().collection('trips').doc(tripId).collection('hotels').add({ name });
-        return { id: hotelRef.id };
-    } catch (error) {
-        console.error("Error creating hotel:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while creating the hotel.');
-    }
-});
-
-exports.getHotels = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to view hotels.');
-    }
-
-    const { tripId } = data;
-
-    if (!(await isTripMember(tripId, context.auth.uid))) {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to view this trip\'s hotels.');
-    }
-
-    try {
-        const hotelsSnapshot = await admin.firestore().collection('trips').doc(tripId).collection('hotels').get();
-        const hotels = [];
-        hotelsSnapshot.forEach(doc => {
-            hotels.push({ id: doc.id, ...doc.data() });
-        });
-        return hotels;
-    } catch (error) {
-        console.error("Error getting hotels:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while getting the hotels.');
-    }
-});
-
-exports.createReservation = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to create a reservation.');
-    }
-
-    const { tripId, details } = data;
-
-    if (!(await isTripMember(tripId, context.auth.uid))) {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to add a reservation to this trip.');
-    }
-
-    try {
-        const reservationRef = await admin.firestore().collection('trips').doc(tripId).collection('reservations').add({ details });
-        return { id: reservationRef.id };
-    } catch (error) {
-        console.error("Error creating reservation:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while creating the reservation.');
-    }
-});
-
-exports.getReservations = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to view reservations.');
-    }
-
-    const { tripId } = data;
-
-    if (!(await isTripMember(tripId, context.auth.uid))) {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to view this trip\'s reservations.');
-    }
-
-    try {
-        const reservationsSnapshot = await admin.firestore().collection('trips').doc(tripId).collection('reservations').get();
-        const reservations = [];
-        reservationsSnapshot.forEach(doc => {
-            reservations.push({ id: doc.id, ...doc.data() });
-        });
-        return reservations;
-    } catch (error) {
-        console.error("Error getting reservations:", error);
-        throw new functions.https.HttpsError('internal', 'An error occurred while getting the reservations.');
-    }
-});
+// Export the express app as a single Cloud Function
+exports.api = functions.https.onRequest(app);

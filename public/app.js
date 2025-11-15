@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
     const auth = firebase.auth();
-    const functions = firebase.functions();
 
     // --- Main Layout ---
     const loginBtn = document.getElementById('login-btn');
@@ -47,18 +46,34 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentUser = null;
     let currentTripId = null;
 
-    // --- Firebase Cloud Functions ---
-    const getTravelSuggestions = functions.httpsCallable('getTravelSuggestions');
-    const createTrip = functions.httpsCallable('createTrip');
-    const getTrips = functions.httpsCallable('getTrips');
-    const createStop = functions.httpsCallable('createStop');
-    const getStops = functions.httpsCallable('getStops');
-    const createFlight = functions.httpsCallable('createFlight');
-    const getFlights = functions.httpsCallable('getFlights');
-    const createHotel = functions.httpsCallable('createHotel');
-    const getHotels = functions.httpsCallable('getHotels');
-    const createReservation = functions.httpsCallable('createReservation');
-    const getReservations = functions.httpsCallable('getReservations');
+    // --- API Communication ---
+    const API_BASE_URL = '/api'; // Using the rewrite in firebase.json
+
+    async function callApi(endpoint, options = {}) {
+        if (!currentUser) {
+            throw new Error("User not authenticated");
+        }
+
+        const idToken = await currentUser.getIdToken(true);
+        const headers = {
+            'Authorization': `Bearer ${idToken}`,
+            'Content-Type': 'application/json'
+        };
+
+        const config = {
+            ...options,
+            headers,
+        };
+
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'API call failed');
+        }
+
+        return response.json();
+    }
 
     // --- Authentication ---
     const provider = new firebase.auth.GoogleAuthProvider();
@@ -93,8 +108,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         suggestionsOutput.textContent = 'Getting AI suggestions...';
         try {
-            const response = await getTravelSuggestions({ prompt: prompt });
-            suggestionsOutput.textContent = response.data.result;
+            const response = await callApi('/getTravelSuggestions', {
+                method: 'POST',
+                body: JSON.stringify({ prompt })
+            });
+            suggestionsOutput.textContent = response.result;
         } catch (error) {
             console.error('Error calling getTravelSuggestions function:', error);
             suggestionsOutput.textContent = 'Failed to get suggestions. ' + error.message;
@@ -108,9 +126,9 @@ document.addEventListener('DOMContentLoaded', function() {
         currentTripId = null;
 
         try {
-            const trips = await getTrips();
+            const trips = await callApi('/getTrips');
             tripList.innerHTML = '';
-            trips.data.forEach(trip => {
+            trips.forEach(trip => {
                 const li = document.createElement('li');
                 li.textContent = trip.name;
                 li.onclick = () => showTripDetail(trip.id, trip.name);
@@ -131,12 +149,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (name && currentUser) {
             try {
-                await createTrip({ 
-                    name, 
-                    description, 
-                    startDate, 
-                    endDate, 
-                    budget: Number(budget) 
+                await callApi('/createTrip', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        name, 
+                        description, 
+                        startDate, 
+                        endDate, 
+                        budget: Number(budget) 
+                    })
                 });
                 tripNameInput.value = '';
                 tripDescriptionInput.value = '';
@@ -165,31 +186,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
         try {
             const [stops, flights, hotels, reservations] = await Promise.all([
-                getStops({ tripId }),
-                getFlights({ tripId }),
-                getHotels({ tripId }),
-                getReservations({ tripId })
+                callApi(`/trips/${tripId}/stops`),
+                callApi(`/trips/${tripId}/flights`),
+                callApi(`/trips/${tripId}/hotels`),
+                callApi(`/trips/${tripId}/reservations`)
             ]);
 
-            stops.data.forEach(stop => {
+            stops.forEach(stop => {
                 const li = document.createElement('li');
                 li.textContent = stop.name;
                 stopList.appendChild(li);
             });
 
-            flights.data.forEach(flight => {
+            flights.forEach(flight => {
                 const li = document.createElement('li');
                 li.textContent = flight.details;
                 flightList.appendChild(li);
             });
 
-            hotels.data.forEach(hotel => {
+            hotels.forEach(hotel => {
                 const li = document.createElement('li');
                 li.textContent = hotel.name;
                 hotelList.appendChild(li);
             });
 
-            reservations.data.forEach(reservation => {
+            reservations.forEach(reservation => {
                 const li = document.createElement('li');
                 li.textContent = reservation.details;
                 reservationList.appendChild(li);
@@ -205,7 +226,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const name = stopNameInput.value.trim();
         if (name && currentTripId) {
             try {
-                await createStop({ tripId: currentTripId, name });
+                await callApi(`/trips/${currentTripId}/stops`, {
+                    method: 'POST',
+                    body: JSON.stringify({ name })
+                });
                 stopNameInput.value = '';
                 showTripDetail(currentTripId, tripDetailName.textContent);
             } catch (error) {
@@ -219,7 +243,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const details = flightDetailsInput.value.trim();
         if (details && currentTripId) {
             try {
-                await createFlight({ tripId: currentTripId, details });
+                await callApi(`/trips/${currentTripId}/flights`, {
+                    method: 'POST',
+                    body: JSON.stringify({ details })
+                });
                 flightDetailsInput.value = '';
                 showTripDetail(currentTripId, tripDetailName.textContent);
             } catch (error) {
@@ -233,7 +260,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const name = hotelNameInput.value.trim();
         if (name && currentTripId) {
             try {
-                await createHotel({ tripId: currentTripId, name });
+                await callApi(`/trips/${currentTripId}/hotels`, {
+                    method: 'POST',
+                    body: JSON.stringify({ name })
+                });
                 hotelNameInput.value = '';
                 showTripDetail(currentTripId, tripDetailName.textContent);
             } catch (error) {
@@ -247,7 +277,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const details = reservationDetailsInput.value.trim();
         if (details && currentTripId) {
             try {
-                await createReservation({ tripId: currentTripId, details });
+                await callApi(`/trips/${currentTripId}/reservations`, {
+                    method: 'POST',
+                    body: JSON.stringify({ details })
+                });
                 reservationDetailsInput.value = '';
                 showTripDetail(currentTripId, tripDetailName.textContent);
             } catch (error) {
