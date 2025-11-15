@@ -1,0 +1,10 @@
+{
+  "name": "globe-m8-root",
+  "private": true,
+  "workspaces": [
+    "functions"
+  ],
+  "engines": {
+    "node": "18"
+  }
+}
